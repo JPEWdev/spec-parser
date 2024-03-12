@@ -154,6 +154,7 @@ class Class:
         "Instantiability",
         "name",
         "SubclassOf",
+        "Referenceable",
     )
     VALID_PROP_METADATA = (
         "maxCount",
@@ -198,6 +199,10 @@ class Class:
             self.metadata["Instantiability"] = "Concrete"
         if self.metadata.get("SubclassOf") == "none":
             del self.metadata["SubclassOf"]
+
+        if "Referenceable" in self.metadata:
+            assert self.metadata["Referenceable"] in ["no", "local", "optional", "yes", "always"], f"Class {self.name} has bad Referenceable '{self.metadata['Referenceable']}'"
+
         for prop in self.properties:
             self.properties[prop]["fqname"] = prop if prop.startswith('/') else f"/{ns.name}/{prop}"
             if "minCount" not in self.properties[prop]:

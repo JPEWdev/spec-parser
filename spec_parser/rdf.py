@@ -14,7 +14,7 @@ from rdflib import (
     URIRef,
 )
 from rdflib.namespace import (
-    OWL, RDF, RDFS, SH, XSD,
+    OWL, RDF, RDFS, SH, XSD, DefinedNamespace, Namespace,
 )
 from rdflib.tools.rdf2dot import (
     rdf2dot
@@ -22,6 +22,12 @@ from rdflib.tools.rdf2dot import (
 
 
 URI_BASE = 'https://rdf.spdx.org/v3/'
+
+# Custom SPDX schema properties
+class SPDXS(DefinedNamespace):
+    referenceable: URIRef
+    _NS = Namespace("https://rdf.spdx.org/ns/schema#")
+
 
 def gen_rdf(model, dir, cfg):
     p = Path(dir)
@@ -47,11 +53,18 @@ def xsd_range(rng, propname):
     logging.warn(f'Uknown namespace in range <{rng}> of property {propname}')
     return None
 
+def get_parent(c, model):
+    parent = c.metadata.get("SubclassOf")
+    if not parent:
+        return None
+    pns = "" if parent.startswith("/") else f"/{c.ns.name}/"
+    return model.classes[pns+parent]
 
 def gen_rdf_ontology(model):
     g = Graph()
     g.bind("spdx", Namespace(URI_BASE))
     g.bind("xsd", XSD)
+    g.bind("spdxs", SPDXS)
 
     node = URIRef(URI_BASE)
     g.add((node, RDF.type, OWL.Ontology))
@@ -63,11 +76,22 @@ def gen_rdf_ontology(model):
         g.add((node, RDF.type, OWL.Class))
         if c.summary:
             g.add((node, RDFS.comment, Literal(c.summary, lang='en')))
-        parent = c.metadata.get("SubclassOf")
+        parent = get_parent(c, model)
         if parent:
-            pns = "" if parent.startswith("/") else f"/{c.ns.name}/"
-            p = model.classes[pns+parent]
-            g.add((node, RDFS.subClassOf, URIRef(p.iri)))
+            g.add((node, RDFS.subClassOf, URIRef(parent.iri)))
+
+        referenceable = None
+        parent = c
+        while parent:
+            if "Referenceable" in parent.metadata:
+                referenceable = parent.metadata["Referenceable"]
+                break
+            parent = get_parent(parent, model)
+
+        if referenceable is None:
+            referenceable = "optional";
+        g.add((node, SPDXS.referenceable, Literal(referenceable)))
+
         if c.properties:
             g.add((node, RDF.type, SH.NodeShape))
             for p in c.properties:
