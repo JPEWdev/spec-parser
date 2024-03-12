@@ -26,6 +26,7 @@ URI_BASE = 'https://rdf.spdx.org/v3/'
 # Custom SPDX schema properties
 class SPDXS(DefinedNamespace):
     referenceable: URIRef
+    idPropertyName: URIRef
     _NS = Namespace("https://rdf.spdx.org/ns/schema#")
 
 
@@ -80,17 +81,29 @@ def gen_rdf_ontology(model):
         if parent:
             g.add((node, RDFS.subClassOf, URIRef(parent.iri)))
 
+        id_property = None
         referenceable = None
         parent = c
         while parent:
-            if "Referenceable" in parent.metadata:
+            if referenceable is None and "Referenceable" in parent.metadata:
                 referenceable = parent.metadata["Referenceable"]
-                break
+
+            if id_property is None and parent.properties:
+                for p in parent.properties:
+                    fqprop = parent.properties[p]["fqname"]
+                    prop = model.properties[fqprop]
+                    if prop.metadata["Nature"] == "IdProperty":
+                        id_property = fqprop.rsplit("/")[-1]
+                        if prop.ns.name != "Core":
+                            id_property = prop.ns.name.lower() + "_" + id_property
+
             parent = get_parent(parent, model)
 
         if referenceable is None:
             referenceable = "optional";
         g.add((node, SPDXS.referenceable, Literal(referenceable)))
+        if id_property is not None:
+            g.add((node, SPDXS.idPropertyName, Literal(id_property)))
 
         if c.properties:
             g.add((node, RDF.type, SH.NodeShape))
@@ -199,8 +212,10 @@ def gen_rdf_ontology(model):
 def jsonld_context(g):
     terms = dict()
     terms["spdx"] = URI_BASE
-    terms["spdxId"] = "@id"
     terms["type"] = "@type"
+
+    for idname in set(g.objects(predicate=SPDXS.idPropertyName)):
+        terms[idname] = "@id"
 
     def get_subject_term(subject):
         if (subject, RDF.type, OWL.ObjectProperty) in g:
